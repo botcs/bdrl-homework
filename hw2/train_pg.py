@@ -35,7 +35,18 @@ def build_mlp(
 
     with tf.variable_scope(scope):
         # YOUR_CODE_HERE
-        pass
+        h = input_placeholder
+        for i in range(n_layers, 1):
+            tf.layers.dense(
+                inputs=h,
+                units=size,
+                activation=activation,
+                name='fc'+i
+            )
+            
+        y = tf.layers.dense(h, output_size, output_activation, name='output')
+
+    return y
 
 def pathlength(path):
     return len(path["reward"])
@@ -118,12 +129,14 @@ def train_PG(exp_name='',
 
     sy_ob_no = tf.placeholder(shape=[None, ob_dim], name="ob", dtype=tf.float32)
     if discrete:
-        sy_ac_na = tf.placeholder(shape=[None], name="ac", dtype=tf.int32) 
+        # had to modify to hold _na property
+        sy_ac_na = tf.placeholder(shape=[None], name="ac", dtype=tf.int32)
+        sy_ac_na_oh = tf.one_hot(sy_ac_na, depth=ac_dim)
     else:
         sy_ac_na = tf.placeholder(shape=[None, ac_dim], name="ac", dtype=tf.float32) 
 
     # Define a placeholder for advantages
-    sy_adv_n = TODO
+    sy_adv_n = tf.placeholder(shape=[None], name='adv', dtype=tf.float32)
 
 
     #========================================================================================#
@@ -167,16 +180,22 @@ def train_PG(exp_name='',
 
     if discrete:
         # YOUR_CODE_HERE
-        sy_logits_na = TODO
-        sy_sampled_ac = TODO # Hint: Use the tf.multinomial op
-        sy_logprob_n = TODO
+        sy_logits_na = build_mlp(sy_ob_no, ac_dim, 'DISCRETE_policy_network', n_layers, size)
+        sy_sampled_ac = tf.multinomial(sy_logits_na, 1)[0] # Hint: Use the tf.multinomial op
+        
+        
+        # Row indexing... 
+        # sy_logprob_n = sy_logits_na[sy_ac_na] definitely not in tf
+        sy_logprob_n = tf.reduce_max(sy_logits_na * sy_ac_na_oh, axis=1)
 
     else:
         # YOUR_CODE_HERE
-        sy_mean = TODO
-        sy_logstd = TODO # logstd should just be a trainable variable, not a network output.
-        sy_sampled_ac = TODO
-        sy_logprob_n = TODO  # Hint: Use the log probability under a multivariate gaussian. 
+        sy_mean = build_mlp(sy_ob_no, ac_dim, 'CONTINUOUS_policy_network_MEAN', n_layers, size)
+        sy_logstd = tf.Variable(tf.ones(ac_dim), 'CONTINUOUS_policy_network_LOGSTD') # logstd should just be a trainable variable, not a network output.
+        sy_sampled_ac = sy_mean + sy_logstd * tf.random_normal([ac_dim])
+        # I'm dying...  logstd? logprob of taking a specific action on a continuous space?? ZERO isn't it?? a range is nonzero... 
+        #Im lost... whatever retrieve the modeled density function value at that point and hope the best.
+        sy_logprob_n = np.log(np.sqrt(1/np.pi)) - sy_logstd - (sy_ac_na - sy_mean)**2/2/sy_logstd**2# Hint: Use the log probability under a multivariate gaussian. 
 
 
 
@@ -185,7 +204,7 @@ def train_PG(exp_name='',
     # Loss Function and Training Operation
     #========================================================================================#
 
-    loss = TODO # Loss function that we'll differentiate to get the policy gradient.
+    loss = -1 * tf.reduce_sum(sy_logprob_n * sy_adv_n) # Loss function that we'll differentiate to get the policy gradient.
     update_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 
@@ -317,7 +336,34 @@ def train_PG(exp_name='',
         #====================================================================================#
 
         # YOUR_CODE_HERE
-        q_n = TODO
+        if reward_to_go:
+            q_n = []
+            for path in paths:
+                rewards_in_time = path['reward']
+                T = len(rewards_in_time)
+                qs_in_time = []
+                for t in range(T):
+                    Q_t = 0
+                    for t_prime in range(t, T):
+                        Q_t += gamma ** (t_prime - t) * rewards_in_time[t_prime]
+                    qs_in_time.append(Q_t)
+                #q_n.append(qs_in_time)
+                q_n.extend(qs_in_time)
+        else:
+            q_n = []
+            for path in paths:
+                rewards_in_time = path['reward']
+                T = len(rewards_in_time)
+                Ret = 0
+                for t_prime in range(T):
+                    Ret += gamma ** (t_prime) * rewards_in_time[t_prime] 
+                
+                qs_in_time = [Ret for t in range(T)]
+                #q_n.append(qs_in_time)
+                q_n.extend(qs_in_time)
+                
+            
+            
 
         #====================================================================================#
         #                           ----------SECTION 5----------
@@ -347,7 +393,8 @@ def train_PG(exp_name='',
             # On the next line, implement a trick which is known empirically to reduce variance
             # in policy gradient methods: normalize adv_n to have mean zero and std=1. 
             # YOUR_CODE_HERE
-            pass
+            adv_n -= adv_n.mean()
+            adv_n /= adv_n.std()
 
 
         #====================================================================================#
@@ -378,9 +425,17 @@ def train_PG(exp_name='',
         # 
         # For debug purposes, you may wish to save the value of the loss function before
         # and after an update, and then log them below. 
-
+        
         # YOUR_CODE_HERE
-
+        feed_dict={sy_ob_no:ob_no, sy_adv_n:adv_n, sy_ac_na:ac_na}
+        loss_before = sess.run(loss, feed_dict)
+        print(loss_before)
+        
+        sess.run(update_op, feed_dict)
+        
+        loss_after = sess.run(loss, feed_dict)
+        print(loss_after)
+        
 
         # Log diagnostics
         returns = [path["reward"].sum() for path in paths]
