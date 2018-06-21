@@ -193,9 +193,7 @@ def train_PG(exp_name='',
         sy_mean = build_mlp(sy_ob_no, ac_dim, 'CONTINUOUS_policy_network_MEAN', n_layers, size)
         sy_logstd = tf.Variable(tf.ones(ac_dim), 'CONTINUOUS_policy_network_LOGSTD') # logstd should just be a trainable variable, not a network output.
         sy_sampled_ac = sy_mean + sy_logstd * tf.random_normal([ac_dim])
-        # I'm dying...  logstd? logprob of taking a specific action on a continuous space?? ZERO isn't it?? a range is nonzero... 
-        #Im lost... whatever retrieve the modeled density function value at that point and hope the best.
-        sy_logprob_n = np.log(np.sqrt(1/np.pi)) - sy_logstd - (sy_ac_na - sy_mean)**2/2/sy_logstd**2# Hint: Use the log probability under a multivariate gaussian. 
+        sy_logprob_n = -(sy_ac_na - sy_mean)**2/2# Hint: Use the log probability under a multivariate gaussian. 
 
 
 
@@ -347,7 +345,6 @@ def train_PG(exp_name='',
                     for t_prime in range(t, T):
                         Q_t += gamma ** (t_prime - t) * rewards_in_time[t_prime]
                     qs_in_time.append(Q_t)
-                #q_n.append(qs_in_time)
                 q_n.extend(qs_in_time)
         else:
             q_n = []
@@ -359,9 +356,9 @@ def train_PG(exp_name='',
                     Ret += gamma ** (t_prime) * rewards_in_time[t_prime] 
                 
                 qs_in_time = [Ret for t in range(T)]
-                #q_n.append(qs_in_time)
                 q_n.extend(qs_in_time)
-                
+
+        q_n = np.array(q_n)
             
             
 
@@ -429,12 +426,9 @@ def train_PG(exp_name='',
         # YOUR_CODE_HERE
         feed_dict={sy_ob_no:ob_no, sy_adv_n:adv_n, sy_ac_na:ac_na}
         loss_before = sess.run(loss, feed_dict)
-        print(loss_before)
         
         sess.run(update_op, feed_dict)
-        
         loss_after = sess.run(loss, feed_dict)
-        print(loss_after)
         
 
         # Log diagnostics
