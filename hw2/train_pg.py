@@ -186,7 +186,10 @@ def train_PG(exp_name='',
         
         # Row indexing... 
         # sy_logprob_n = sy_logits_na[sy_ac_na] definitely not in tf
-        sy_logprob_n = tf.reduce_max(sy_logits_na * sy_ac_na_oh, axis=1)
+        #sy_logprob_n = tf.reduce_max(sy_logits_na * sy_ac_na_oh, axis=1)
+        print(sy_ac_na)
+        print(sy_logits_na)
+        sy_logprob_n = tf.nn.softmax_cross_entropy_with_logits(labels=sy_ac_na_oh, logits=sy_logits_na)
 
     else:
         # YOUR_CODE_HERE
@@ -202,7 +205,8 @@ def train_PG(exp_name='',
     # Loss Function and Training Operation
     #========================================================================================#
 
-    loss = -1 * tf.reduce_sum(sy_logprob_n * sy_adv_n) # Loss function that we'll differentiate to get the policy gradient.
+    weighted_negative_likelihoods = tf.multiply(sy_logprob_n, sy_adv_n)
+    loss = tf.reduce_mean(weighted_negative_likelihoods) # Loss function that we'll differentiate to get the policy gradient.
     update_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 
@@ -359,8 +363,7 @@ def train_PG(exp_name='',
                 q_n.extend(qs_in_time)
 
         q_n = np.array(q_n)
-            
-            
+        
 
         #====================================================================================#
         #                           ----------SECTION 5----------
